@@ -15,6 +15,10 @@ enum rad_opts {
   RAD_OPTS  // holds number of possible options
 };
 
+struct rad_ctx {
+   struct dp_option *opts;
+};
+
 /**
  * Loads options for radius provider.
  */

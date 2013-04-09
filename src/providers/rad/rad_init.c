@@ -27,7 +27,7 @@ int sssm_rad_auth_init( struct be_ctx *bectx, struct bet_ops **ops,
                         void **pvt_auth_data)
 {
   int retval = EINVAL;
-  struct be_ctx *ctx;
+  struct rad_ctx *ctx;
 
   if (rad_options == NULL) {
     rad_options = talloc_zero(bectx, struct rad_options);
@@ -43,7 +43,20 @@ int sssm_rad_auth_init( struct be_ctx *bectx, struct bet_ops **ops,
     }
   }
 
-  ctx = bectx;
+  if (rad_options->ctx != NULL) {
+    *ops = &rad_auth_ops;
+    *pvt_auth_data = rad_options->ctx;
+    return EOK;
+  }
+
+  ctx = talloc_zero(bectx, struct rad_ctx);
+  if (!ctx) {
+    DEBUG(1, ("talloc_zero failed.\n"));
+    return ENOMEM;
+  };
+  rad_options->ctx = ctx;
+
+  ctx->opts = rad_options->opts;
 
   *ops = &rad_auth_ops;
   *pvt_auth_data = ctx;
