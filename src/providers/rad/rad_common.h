@@ -8,15 +8,15 @@
  *  List of all options for radius provider.
  */
 enum rad_opts {
-  RAD_SERVER,
-  RAD_PORT,
-  RAD_TMP,  // just temporary for development purposes
+    RAD_SERVER,
+    RAD_PORT,
+    RAD_TMP,  /* just temporary for development purposes */
 
-  RAD_OPTS  // holds number of possible options
+    RAD_OPTS  /* holds number of possible options */
 };
 
 struct rad_ctx {
-   struct dp_option *opts;
+    struct dp_option *opts;
 };
 
 /**

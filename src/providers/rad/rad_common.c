@@ -11,22 +11,22 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
                          const char *conf_path,
                          struct dp_option **_opts)
 {
-  int retval = EINVAL;
-  struct dp_option *opts;
+    int retval = EINVAL;
+    struct dp_option *opts;
 
-  opts = talloc_zero(memctx, struct dp_option);
-  if(opts == NULL) {
-    DEBUG(1, ("talloc_zero failed.\n"));
-    return ENOMEM;
-  }
+    opts = talloc_zero(memctx, struct dp_option);
+    if (opts == NULL) {
+        DEBUG(SSSDBG_CRIT_FAILURE, ("talloc_zero failed.\n"));
+        return ENOMEM;
+    }
 
-  retval = dp_get_options(opts, cdb, conf_path, default_rad_options, RAD_OPTS, &opts);
-  if(retval != EOK) {
-    DEBUG(1, ("dp_get_options failed.\n"));
-    talloc_zfree(opts);
-  } else {
-    *_opts = opts;
-  }
+    retval = dp_get_options(opts, cdb, conf_path, default_rad_options, RAD_OPTS, &opts);
+    if (retval != EOK) {
+        DEBUG(SSSDBG_CRIT_FAILURE, ("dp_get_options failed.\n"));
+        talloc_zfree(opts);
+    } else {
+        *_opts = opts;
+    }
   
-  return retval;
+    return retval;
 }

@@ -176,7 +176,7 @@ sssdlib_LTLIBRARIES = \
     libsss_proxy.la \
     libsss_ipa.la \
     libsss_ad.la \
-		libsss_rad.la \
+    libsss_rad.la \
     libsss_simple.la
 
 ldblib_LTLIBRARIES = \
@@ -467,9 +467,9 @@ dist_noinst_HEADERS = \
     src/providers/ipa/ipa_hostid.h \
     src/providers/ipa/ipa_opts.h \
     src/providers/ipa/ipa_srv.h \
-		src/providers/rad/rad_common.h \
-		src/providers/rad/rad_auth.h \
-		src/providers/rad/rad_opts.h \
+    src/providers/rad/rad_common.h \
+    src/providers/rad/rad_auth.h \
+    src/providers/rad/rad_opts.h \
     src/providers/proxy/proxy.h \
     src/tools/tools_util.h \
     src/tools/sss_sync_ops.h \
