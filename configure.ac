@@ -121,6 +121,7 @@ WITH_SUDO_LIB_PATH
 WITH_AUTOFS
 WITH_SSH
 WITH_CRYPTO
+WITH_RADIUS
 
 m4_include([src/external/pkg.m4])
 m4_include([src/external/libpopt.m4])

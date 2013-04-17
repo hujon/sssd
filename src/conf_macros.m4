@@ -505,6 +505,29 @@ AC_DEFUN([WITH_SUDO],
     AM_CONDITIONAL([BUILD_SUDO], [test x"$with_sudo" = xyes])
   ])
 
+AC_DEFUN([WITH_RADIUS],
+  [ AC_ARG_WITH([radius],
+                [AC_HELP_STRING([--with-radius],
+                                [Whether to build with radius support [no]]
+                               )
+                ],
+                [with_radius=$withval],
+               )
+
+    dnl Remove when radius goes out of experimental
+    if test x"$enable_all_experimental_features" = xyes; then
+        if test x"$with_radius" != xno; then
+            with_radius=yes
+        fi
+    fi
+
+    if test x"$with_radius" = xyes; then
+        AC_DEFINE(BUILD_RADIUS, 1, [whether to build with radius support])
+    fi
+    AM_CONDITIONAL([BUILD_RADIUS], [test x"$with_radius" = xyes])
+  ])
+
+
 AC_DEFUN([WITH_SUDO_LIB_PATH],
   [ AC_ARG_WITH([sudo-lib-path],
                 [AC_HELP_STRING([--with-sudo-lib-path=<path>],

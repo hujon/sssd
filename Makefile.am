@@ -176,8 +176,15 @@ sssdlib_LTLIBRARIES = \
     libsss_proxy.la \
     libsss_ipa.la \
     libsss_ad.la \
-    libsss_rad.la \
     libsss_simple.la
+
+if BUILD_RADIUS
+
+sssdlib_LTLIBRARIES += libsss_rad.la
+
+endif
+
+
 
 ldblib_LTLIBRARIES = \
     memberof.la
@@ -1583,6 +1590,8 @@ libsss_ad_la_LDFLAGS = \
     -avoid-version \
     -module
 
+if BUILD_RADIUS
+
 libsss_rad_la_SOURCES = \
     src/providers/rad/rad_common.c \
     src/providers/rad/rad_auth.c \
@@ -1592,6 +1601,8 @@ libsss_rad_la_LIBADD = \
 libsss_rad_la_LDFLAGS = \
     -avoid-version \
 	-module
+
+endif
 
 krb5_child_SOURCES = \
     src/providers/krb5/krb5_become_user.c \
