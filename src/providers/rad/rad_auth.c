@@ -51,6 +51,7 @@ void rad_auth_handler(struct be_req *be_req)
 {
     struct rad_ctx  *rad_ctx;
     struct pam_data *pd;
+    const char* pass = NULL;
     int dp_err = DP_ERR_FATAL;
 
     pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
@@ -64,6 +65,12 @@ void rad_auth_handler(struct be_req *be_req)
     }
 
     dp_err = DP_ERR_OK;
+    if (sss_authtok_get_password(pd->authtok, &pass, NULL) != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s\n", pd->user));
+        be_req_terminate(be_req, dp_err, pd->pam_status, NULL);
+        return;
+    }
+    rad_send_req(rad_ctx, pd->user, pass);
     if (dp_opt_get_bool(rad_ctx->opts, RAD_TMP)) {
         pd->pam_status = PAM_SUCCESS;
     } else {

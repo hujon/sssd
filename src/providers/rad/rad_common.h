@@ -34,6 +34,8 @@
 enum rad_opts {
     RAD_SERVER,
     RAD_PORT,
+    RAD_TIMEOUT,
+    RAD_CONN_RETRIES,
     RAD_TMP,  /* just temporary for development purposes */
 
     RAD_OPTS  /* holds number of possible options */
@@ -57,5 +59,8 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
                          const char *conf_path,
                          struct dp_option **_opts);
 
+int rad_send_req( struct rad_ctx *ctx,
+                  const char *username,
+                  const char *pass);
 
 #endif  /* __RAD_COMMON_H__ */
