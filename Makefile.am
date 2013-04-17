@@ -1587,8 +1587,11 @@ libsss_rad_la_SOURCES = \
     src/providers/rad/rad_common.c \
     src/providers/rad/rad_auth.c \
     src/providers/rad/rad_init.c
+libsss_rad_la_LIBADD = \
+	libsss_util.la
 libsss_rad_la_LDFLAGS = \
-    -avoid-version
+    -avoid-version \
+	-module
 
 krb5_child_SOURCES = \
     src/providers/krb5/krb5_become_user.c \
