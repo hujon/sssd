@@ -43,6 +43,12 @@ struct rad_ctx {
     struct dp_option *opts;
 };
 
+/* rad_init.c */
+int sssm_rad_auth_init( struct be_ctx *bectx,
+                        struct bet_ops **ops,
+                        void **pvt_auth_data);
+
+/* rad_common.c */
 /**
  * Loads options for radius provider.
  */
@@ -51,8 +57,5 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
                          const char *conf_path,
                          struct dp_option **_opts);
 
-int sssm_rad_auth_init( struct be_ctx *bectx,
-                        struct bet_ops **ops,
-                        void **pvt_auth_data);
 
 #endif  /* __RAD_COMMON_H__ */

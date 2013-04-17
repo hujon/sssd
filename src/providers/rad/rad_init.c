@@ -30,7 +30,7 @@
  */
 struct rad_options {
     struct dp_option *opts;
-    struct be_ctx *ctx;
+    struct rad_ctx *ctx;
 };
 struct rad_options *rad_options = NULL;
 
@@ -54,13 +54,13 @@ int sssm_rad_auth_init( struct be_ctx *bectx, struct bet_ops **ops,
     if (rad_options == NULL) {
         rad_options = talloc_zero(bectx, struct rad_options);
         if (rad_options == NULL) {
-            DEBUG(SSSDBG_CRIT_FAILURE, ("talloc_zero failed.\n"));
+            DEBUG(SSSDBG_FATAL_FAILURE, ("talloc_zero failed.\n"));
             return ENOMEM;
         }
         retval = rad_get_options(rad_options, bectx->cdb, bectx->conf_path,
                                  &rad_options->opts);
         if (retval != EOK) {
-            DEBUG(SSSDBG_CRIT_FAILURE, ("rad_get_options failed.\n"));
+            DEBUG(SSSDBG_FATAL_FAILURE, ("rad_get_options failed.\n"));
             return retval;
         }
     }

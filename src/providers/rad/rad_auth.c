@@ -41,15 +41,6 @@ static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
         return talloc_get_type(be_ctx->bet_info[BET_AUTH].pvt_bet_data,
                               struct rad_ctx);
         break;
-    case SSS_PAM_ACCT_MGMT:
-        return talloc_get_type(be_ctx->bet_info[BET_ACCESS].pvt_bet_data,
-                              struct rad_ctx);
-        break;
-    case SSS_PAM_CHAUTHTOK:
-    case SSS_PAM_CHAUTHTOK_PRELIM:
-        return talloc_get_type(be_ctx->bet_info[BET_CHPASS].pvt_bet_data,
-                              struct rad_ctx);
-        break;
     default:
         DEBUG(SSSDBG_OP_FAILURE, ("Unsupported PAM task.\n"));
         return NULL;
@@ -58,8 +49,6 @@ static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
 
 void rad_auth_handler(struct be_req *be_req)
 {
-    int retval;
-    struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
     struct rad_ctx  *rad_ctx;
     struct pam_data *pd;
     int dp_err = DP_ERR_FATAL;

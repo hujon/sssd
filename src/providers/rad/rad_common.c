@@ -45,7 +45,10 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
 
     retval = dp_get_options(opts, cdb, conf_path, default_rad_options, RAD_OPTS, &opts);
     if (retval != EOK) {
-        DEBUG(SSSDBG_CRIT_FAILURE, ("dp_get_options failed.\n"));
+        DEBUG(SSSDBG_FATAL_FAILURE, ("dp_get_options failed.\n"));
+        talloc_zfree(opts);
+    } else if (dp_opt_get_string(opts, RAD_SERVER) == NULL) {
+        DEBUG(SSSDBG_FATAL_FAILURE, ("rad_server must be set!.\n"));
         talloc_zfree(opts);
     } else {
         *_opts = opts;
