@@ -151,6 +151,16 @@ m4_include([src/external/systemd.m4])
 m4_include([src/external/pac_responder.m4])
 m4_include([src/external/signal.m4])
 
+if test x$enable_all_experimental_features = xyes; then
+    if test x$with_radius != xno; then
+        with_radius=yes
+    fi
+fi
+if test x$with_radius = xyes; then
+    m4_include([src/external/verto.m4])
+    m4_include([src/external/krad.m4])
+fi
+
 WITH_UNICODE_LIB
 if test x$unicode_lib = xlibunistring; then
 	m4_include([src/external/libunistring.m4])

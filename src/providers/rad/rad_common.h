@@ -34,7 +34,9 @@
 enum rad_opts {
     RAD_SERVER,
     RAD_PORT,
-    RAD_TMP,  /* just temporary for development purposes */
+    RAD_SECRET,
+    RAD_TIMEOUT,
+    RAD_CONN_RETRIES,
 
     RAD_OPTS  /* holds number of possible options */
 };
