@@ -24,10 +24,14 @@
 
 #include <krad.h>
 #include <security/pam_modules.h>
+#include <stdio.h>
 
 #include "providers/dp_backend.h"
 #include "providers/rad/rad_auth.h"
 #include "providers/rad/rad_common.h"
+
+#define HOSTNAME_LEN_MAX 256
+#define PROTOCOL_LEN 25
 
 struct rad_req {
     struct rad_ctx *rad_ctx;
@@ -71,12 +75,12 @@ static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
     }
 }
 
-static inline krb5_data string2data(char *str)
+static inline krb5_data string2data(const char *str)
 {
     krb5_data d;
 
     d.magic = KV5M_DATA;
-    d.data = str;
+    d.data = strdup(str);
     d.length = strlen(str);
 
     return d;
@@ -93,9 +97,14 @@ static int rad_auth_send(struct rad_ctx *ctx,
 {
     int retval = EOK;
     const char *pass = NULL;
+    char server_name[HOSTNAME_LEN_MAX+PROTOCOL_LEN+1];
     krb5_data tmp;
     krb5_error_code kerr;
     struct rad_req *rad_req;
+
+    snprintf(server_name, sizeof(server_name), "%s:%s",
+             dp_opt_get_string(ctx->opts, RAD_SERVER),
+             dp_opt_get_string(ctx->opts, RAD_PORT));
 
     rad_req = talloc_zero(be_req, struct rad_req);
     if (rad_req == NULL) {
@@ -141,6 +150,7 @@ static int rad_auth_send(struct rad_ctx *ctx,
     kerr = krad_attrset_add(rad_req->attrs,
                             krad_attr_name2num("User-Name"),
                             &tmp);
+    free(tmp.data);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Name to attribute list.\n"));
         goto done;
@@ -149,20 +159,40 @@ static int rad_auth_send(struct rad_ctx *ctx,
         DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s.\n", pd->user));
         goto done;
     }
-    tmp = string2data((char *)pass);
+    tmp = string2data(pass);
     kerr = krad_attrset_add(rad_req->attrs,
                             krad_attr_name2num("User-Password"),
                             &tmp);
+    free(tmp.data);
+    pass = NULL;
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Password to attribute list.\n"));
         goto done;
+    }
+    kerr = krad_attrset_add_number(rad_req->attrs,
+                                   krad_attr_name2num("Service-Type"),
+                                   KRAD_SERVICE_TYPE_LOGIN);
+    if (kerr != 0) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Could not add Service-Type to attribute list.\n"));
+        goto done;
+    }
+    if (dp_opt_get_string(ctx->opts, RAD_IDENTIFIER) != NULL) {
+        tmp = string2data(dp_opt_get_string(ctx->opts, RAD_IDENTIFIER));
+        kerr = krad_attrset_add(rad_req->attrs,
+                                krad_attr_name2num("NAS-Identifier"),
+                                &tmp);
+        free(tmp.data);
+        if (kerr != 0) {
+            DEBUG(SSSDBG_OP_FAILURE, ("Could not add NAS-Identifier to attribute list.\n"));
+            goto done;
+        }
     }
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Sending request\n"));
     kerr = krad_client_send(rad_req->client,
                             krad_code_name2num("Access-Request"),
                             rad_req->attrs,
-                            dp_opt_get_string(ctx->opts, RAD_SERVER),
+                            server_name,
                             dp_opt_get_string(ctx->opts, RAD_SECRET),
                             dp_opt_get_int(ctx->opts, RAD_TIMEOUT),
                             dp_opt_get_int(ctx->opts, RAD_CONN_RETRIES),
@@ -220,7 +250,7 @@ static void rad_auth_done(krb5_error_code retval,
     req = data;
     req->pd->pam_status = PAM_SYSTEM_ERR;
 
-    //verto_break(req->vctx);
+    verto_break(req->vctx);
 
     switch (retval) {
     case 0:

@@ -22,6 +22,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <unistd.h>
+
 #include "providers/dp_backend.h"
 #include "providers/rad/rad_common.h"
 #include "providers/rad/rad_opts.h"
@@ -36,6 +38,7 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
 {
     int retval = EINVAL;
     struct dp_option *opts;
+    char hostname[HOST_NAME_MAX+1];
 
     opts = talloc_zero(memctx, struct dp_option);
     if (opts == NULL) {
@@ -51,6 +54,11 @@ errno_t rad_get_options( TALLOC_CTX *memctx,
         DEBUG(SSSDBG_FATAL_FAILURE, ("rad_server must be set!.\n"));
         talloc_zfree(opts);
     } else {
+        if ((dp_opt_get_string(opts, RAD_IDENTIFIER) == NULL)
+            && (gethostname(hostname, sizeof(hostname)) == 0)) {
+
+            dp_opt_set_string(opts, RAD_IDENTIFIER, hostname);
+        }
         *_opts = opts;
     }
   

@@ -36,6 +36,7 @@ struct dp_option default_rad_options[] = {
     { "rad_secret", DP_OPT_STRING, NULL_STRING, NULL_STRING },
     { "rad_timeout", DP_OPT_NUMBER, { .number = 1000 }, NULL_NUMBER },
     { "rad_conn_retries", DP_OPT_NUMBER, { .number = 3 }, NULL_NUMBER },
+    { "rad_identifier", DP_OPT_STRING, NULL_STRING, NULL_STRING },
     DP_OPTION_TERMINATOR
 };
 

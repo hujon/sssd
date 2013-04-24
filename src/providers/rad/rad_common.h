@@ -37,6 +37,7 @@ enum rad_opts {
     RAD_SECRET,
     RAD_TIMEOUT,
     RAD_CONN_RETRIES,
+    RAD_IDENTIFIER,
 
     RAD_OPTS  /* holds number of possible options */
 };
