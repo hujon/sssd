@@ -43,8 +43,12 @@ struct rad_req {
     verto_ctx *vctx;
 };
 
-void rad_req_free(struct rad_req *req)
+static int rad_req_destructor(void *mem)
 {
+    struct rad_req *req = talloc_get_type(mem, struct rad_req);
+
+    DEBUG(SSSDBG_TRACE_FUNC, ("Destructor freeing req.\n"));
+    
     if (req->attrs != NULL)
         krad_attrset_free(req->attrs);
     if (req->client != NULL)
@@ -53,6 +57,8 @@ void rad_req_free(struct rad_req *req)
         verto_free(req->vctx);
     if (req->kctx != NULL)
         krb5_free_context(req->kctx);
+
+    return 0;
 }
 
 static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
@@ -125,6 +131,7 @@ static int rad_auth_send(struct rad_ctx *ctx,
         retval = ENOMEM;
         goto done;
     }
+    talloc_set_destructor((TALLOC_CTX *)rad_req, rad_req_destructor);
     rad_req->rad_ctx = ctx;
     rad_req->pd = pd;
     rad_req->be_req = be_req;
@@ -211,7 +218,6 @@ static int rad_auth_send(struct rad_ctx *ctx,
     return retval;
 
 done:
-    rad_req_free(rad_req);
     return retval;
 }
 
@@ -279,7 +285,5 @@ static void rad_auth_done(krb5_error_code retval,
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Callback terminating be_req.\n"));
     be_req_terminate(req->be_req, dp_err, req->pd->pam_status, NULL);
-    DEBUG(SSSDBG_TRACE_FUNC, ("Callback freeing req.\n"));
-    rad_req_free(req);
     DEBUG(SSSDBG_TRACE_FUNC, ("Callback finished.\n"));
 }
