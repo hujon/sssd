@@ -30,7 +30,6 @@
 #include "providers/rad/rad_auth.h"
 #include "providers/rad/rad_common.h"
 
-#define HOSTNAME_LEN_MAX 256
 #define PROTOCOL_LEN 25
 
 struct rad_req {
@@ -86,6 +85,21 @@ static inline krb5_data string2data(const char *str)
     return d;
 }
 
+static krb5_error_code add_str_attr(krad_attrset *attrs,
+                                    const char *attr_name,
+                                    const char *attr_val)
+{
+    krb5_data tmp;
+    krb5_error_code retval;
+
+    tmp = string2data(attr_val);
+    retval = krad_attrset_add(attrs,
+                              krad_attr_name2num(attr_name),
+                              &tmp);
+    free(tmp.data);
+    return retval;
+}
+
 static void rad_auth_done(krb5_error_code retval,
                           const krad_packet *req,
                           const krad_packet *response,
@@ -97,8 +111,7 @@ static int rad_auth_send(struct rad_ctx *ctx,
 {
     int retval = EOK;
     const char *pass = NULL;
-    char server_name[HOSTNAME_LEN_MAX+PROTOCOL_LEN+1];
-    krb5_data tmp;
+    char server_name[HOST_NAME_MAX+1+PROTOCOL_LEN+1];
     krb5_error_code kerr;
     struct rad_req *rad_req;
 
@@ -146,11 +159,7 @@ static int rad_auth_send(struct rad_ctx *ctx,
         retval = ERR_AUTH_FAILED;
         goto done;
     }
-    tmp = string2data(pd->user);
-    kerr = krad_attrset_add(rad_req->attrs,
-                            krad_attr_name2num("User-Name"),
-                            &tmp);
-    free(tmp.data);
+    kerr = add_str_attr(rad_req->attrs, "User-Name", pd->user);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Name to attribute list.\n"));
         goto done;
@@ -159,11 +168,7 @@ static int rad_auth_send(struct rad_ctx *ctx,
         DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s.\n", pd->user));
         goto done;
     }
-    tmp = string2data(pass);
-    kerr = krad_attrset_add(rad_req->attrs,
-                            krad_attr_name2num("User-Password"),
-                            &tmp);
-    free(tmp.data);
+    kerr = add_str_attr(rad_req->attrs, "User-Password", pass);
     pass = NULL;
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Password to attribute list.\n"));
@@ -177,11 +182,9 @@ static int rad_auth_send(struct rad_ctx *ctx,
         goto done;
     }
     if (dp_opt_get_string(ctx->opts, RAD_IDENTIFIER) != NULL) {
-        tmp = string2data(dp_opt_get_string(ctx->opts, RAD_IDENTIFIER));
-        kerr = krad_attrset_add(rad_req->attrs,
-                                krad_attr_name2num("NAS-Identifier"),
-                                &tmp);
-        free(tmp.data);
+        kerr = add_str_attr(rad_req->attrs,
+                            "NAS-Identifier",
+                            dp_opt_get_string(ctx->opts, RAD_IDENTIFIER));
         if (kerr != 0) {
             DEBUG(SSSDBG_OP_FAILURE, ("Could not add NAS-Identifier to attribute list.\n"));
             goto done;

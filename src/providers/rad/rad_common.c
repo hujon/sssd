@@ -31,10 +31,10 @@
 /**
  * Loads options for radius provider.
  */
-errno_t rad_get_options( TALLOC_CTX *memctx,
-                         struct confdb_ctx *cdb,
-                         const char *conf_path,
-                         struct dp_option **_opts)
+errno_t rad_get_options(TALLOC_CTX *memctx,
+                        struct confdb_ctx *cdb,
+                        const char *conf_path,
+                        struct dp_option **_opts)
 {
     int retval = EINVAL;
     struct dp_option *opts;

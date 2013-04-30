@@ -45,8 +45,8 @@ struct bet_ops rad_auth_ops = {
 /**
  * Initialize Radius provider
  */
-int sssm_rad_auth_init( struct be_ctx *bectx, struct bet_ops **ops, 
-                        void **pvt_auth_data)
+int sssm_rad_auth_init(struct be_ctx *bectx, struct bet_ops **ops, 
+                       void **pvt_auth_data)
 {
     int retval = EINVAL;
     struct rad_ctx *ctx;
