@@ -32,6 +32,36 @@
 
 #define PROTOCOL_LEN 25
 
+static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
+{
+    struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
+    struct pam_data *pd;
+
+    pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
+
+    switch (pd->cmd) {
+    case SSS_PAM_AUTHENTICATE:
+    case SSS_CMD_RENEW:
+        return talloc_get_type(be_ctx->bet_info[BET_AUTH].pvt_bet_data,
+                              struct rad_ctx);
+        break;
+    default:
+        DEBUG(SSSDBG_OP_FAILURE, ("Unsupported PAM task.\n"));
+        return NULL;
+    }
+}
+
+struct rad_state {
+    struct tevent_context *ev;
+    struct tevent_req *req;
+    struct rad_req *rad_req;
+
+    int pam_status;
+    int dp_err;
+};
+
+/* RADIUS request oriented objects */
+
 struct rad_req {
     struct rad_ctx *rad_ctx;
     struct pam_data *pd;
@@ -61,24 +91,7 @@ static int rad_req_destructor(void *mem)
     return 0;
 }
 
-static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
-{
-    struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
-    struct pam_data *pd;
-
-    pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
-
-    switch (pd->cmd) {
-    case SSS_PAM_AUTHENTICATE:
-    case SSS_CMD_RENEW:
-        return talloc_get_type(be_ctx->bet_info[BET_AUTH].pvt_bet_data,
-                              struct rad_ctx);
-        break;
-    default:
-        DEBUG(SSSDBG_OP_FAILURE, ("Unsupported PAM task.\n"));
-        return NULL;
-    }
-}
+/* krad oriented objects */
 
 static inline krb5_data string2data(const char *str)
 {
@@ -106,126 +119,190 @@ static krb5_error_code add_str_attr(krad_attrset *attrs,
     return retval;
 }
 
-static void rad_auth_done(krb5_error_code retval,
-                          const krad_packet *req,
-                          const krad_packet *response,
-                          void *data);
+static void rad_server_done(krb5_error_code retval,
+                            const krad_packet *req,
+                            const krad_packet *response,
+                            void *data);
 
-static int rad_auth_send(struct rad_ctx *ctx,
-                         struct pam_data *pd,
-                         struct be_req *be_req)
+static int rad_server_send(struct rad_state *state)
 {
-    int retval = EOK;
+    struct rad_req *rad_req = state->rad_req;
     const char *pass = NULL;
     char server_name[HOST_NAME_MAX+1+PROTOCOL_LEN+1];
     krb5_error_code kerr;
-    struct rad_req *rad_req;
 
     snprintf(server_name, sizeof(server_name), "%s:%s",
-             dp_opt_get_string(ctx->opts, RAD_SERVER),
-             dp_opt_get_string(ctx->opts, RAD_PORT));
+             dp_opt_get_string(rad_req->rad_ctx->opts, RAD_SERVER),
+             dp_opt_get_string(rad_req->rad_ctx->opts, RAD_PORT));
 
-    rad_req = talloc_zero(be_req, struct rad_req);
-    if (rad_req == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, ("talloc_zero failed.\n"));
-        retval = ENOMEM;
-        goto done;
-    }
-    talloc_set_destructor((TALLOC_CTX *)rad_req, rad_req_destructor);
-    rad_req->rad_ctx = ctx;
-    rad_req->pd = pd;
-    rad_req->be_req = be_req;
 
     kerr = krb5_init_context(&rad_req->kctx);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize KRB5 context.\n"));
         rad_req->kctx = NULL;
-        retval = ERR_AUTH_FAILED;
-        goto done;
+        return ERR_AUTH_FAILED;
     }
  
     rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
     if (rad_req->vctx == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
-        retval = ERR_AUTH_FAILED;
-        goto done;
+        return ERR_AUTH_FAILED;
     }
     
     kerr = krad_client_new(rad_req->kctx, rad_req->vctx, &rad_req->client);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize radius client.\n"));
         rad_req->client = NULL;
-        retval = ERR_AUTH_FAILED;
-        goto done;
+        return ERR_AUTH_FAILED;
     }
     
     kerr = krad_attrset_new(rad_req->kctx, &rad_req->attrs);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize attribute list.\n"));
         rad_req->attrs = NULL;
-        retval = ERR_AUTH_FAILED;
-        goto done;
+        return ERR_AUTH_FAILED;
     }
-    kerr = add_str_attr(rad_req->attrs, "User-Name", pd->user);
+    kerr = add_str_attr(rad_req->attrs, "User-Name", rad_req->pd->user);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Name to attribute list.\n"));
-        goto done;
+        return ERR_AUTH_FAILED;
     }
-    if (sss_authtok_get_password(pd->authtok, &pass, NULL) != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s.\n", pd->user));
-        goto done;
+    if (sss_authtok_get_password(rad_req->pd->authtok, &pass, NULL) != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s.\n", rad_req->pd->user));
+        return ERR_AUTH_FAILED;
     }
     kerr = add_str_attr(rad_req->attrs, "User-Password", pass);
     pass = NULL;
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Password to attribute list.\n"));
-        goto done;
+        return ERR_AUTH_FAILED;
     }
     kerr = krad_attrset_add_number(rad_req->attrs,
                                    krad_attr_name2num("Service-Type"),
                                    KRAD_SERVICE_TYPE_LOGIN);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add Service-Type to attribute list.\n"));
-        goto done;
+        return ERR_AUTH_FAILED;
     }
-    if (dp_opt_get_string(ctx->opts, RAD_IDENTIFIER) != NULL) {
+    if (dp_opt_get_string(rad_req->rad_ctx->opts, RAD_IDENTIFIER) != NULL) {
         kerr = add_str_attr(rad_req->attrs,
                             "NAS-Identifier",
-                            dp_opt_get_string(ctx->opts, RAD_IDENTIFIER));
+                            dp_opt_get_string(rad_req->rad_ctx->opts, RAD_IDENTIFIER));
         if (kerr != 0) {
-            DEBUG(SSSDBG_OP_FAILURE, ("Could not add NAS-Identifier to attribute list.\n"));
-            goto done;
+            DEBUG(SSSDBG_MINOR_FAILURE, ("Could not add NAS-Identifier to attribute list.\n"));
         }
     }
 
-    DEBUG(SSSDBG_TRACE_FUNC, ("Sending request\n"));
     kerr = krad_client_send(rad_req->client,
                             krad_code_name2num("Access-Request"),
                             rad_req->attrs,
                             server_name,
-                            dp_opt_get_string(ctx->opts, RAD_SECRET),
-                            dp_opt_get_int(ctx->opts, RAD_TIMEOUT),
-                            dp_opt_get_int(ctx->opts, RAD_CONN_RETRIES),
-                            rad_auth_done,
-                            rad_req);
+                            dp_opt_get_string(rad_req->rad_ctx->opts, RAD_SECRET),
+                            dp_opt_get_int(rad_req->rad_ctx->opts, RAD_TIMEOUT),
+                            dp_opt_get_int(rad_req->rad_ctx->opts, RAD_CONN_RETRIES),
+                            rad_server_done,
+                            state);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Failed to send client request.\n"));
-        retval = ERR_AUTH_FAILED;
-        goto done;
+        return ERR_AUTH_FAILED;
     }
 
     verto_run(rad_req->vctx);
-    return retval;
-
-done:
-    return retval;
+    return EOK;
 }
 
-void rad_auth_handler(struct be_req *be_req)
+static void rad_server_done(krb5_error_code retval,
+                            const krad_packet *req_pkt,
+                            const krad_packet *rsp_pkt,
+                            void *data)
 {
+    struct rad_state *state = data;
+    int code;
+
+    verto_break(state->rad_req->vctx);
+
+    switch (retval) {
+    case EOK:
+        break;
+    case ETIMEDOUT:
+        DEBUG(SSSDBG_OP_FAILURE, ("Request timeout. No response from server.\n"));
+        break;
+    default:
+        DEBUG(SSSDBG_OP_FAILURE, ("rad_auth_send failed with code %i.\n", retval));
+    }
+
+    code = krad_packet_get_code(rsp_pkt);
+    if (code == krad_code_name2num("Access-Accept")) {
+        DEBUG(SSSDBG_TRACE_FUNC, 
+              ("Permission granted for user %s.\n", state->rad_req->pd->user));
+        state->dp_err = DP_ERR_OK;
+        state->pam_status = PAM_SUCCESS;
+    } else if (code == krad_code_name2num("Access-Reject")) {
+        DEBUG(SSSDBG_TRACE_FUNC, 
+              ("Permission granted for user %s.\n", state->rad_req->pd->user));
+        state->dp_err = DP_ERR_OK;
+        state->pam_status = PAM_PERM_DENIED;
+    } else if (code == krad_code_name2num("Access-Challenge")) {
+        /* TODO: maybe add some handling for challenges in the future? */
+    }
+
+    tevent_req_done(state->req);
+    tevent_req_post(state->req, state->ev);
+}
+
+/* tevent subrequest oriented objects */
+
+static void rad_auth_done(struct tevent_req *req);
+
+static struct tevent_req *sss_rad_auth_send(TALLOC_CTX *mem_ctx,
+                                            struct tevent_context *ev,
+                                            struct rad_req *rad_req)
+{
+    struct tevent_req *req;
+    struct rad_state *state;
+    int retval;
+
+    req = tevent_req_create(rad_req, &state, struct rad_state);
+    if (req == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, ("tevent_req_create failed.\n"));
+        return NULL;
+    }
+    state->ev = ev;
+    state->req = req;
+    state->rad_req = rad_req;
+    state->pam_status = PAM_SYSTEM_ERR;
+    state->dp_err = DP_ERR_FATAL;
+
+    retval = rad_server_send(state);
+    if (retval != EOK) {
+        DEBUG(SSSDBG_OP_FAILURE, ("rad_server_send failed.\n"));
+        tevent_req_error(req, retval);
+        tevent_req_post(req, ev);
+    }
+
+    return req;
+}
+
+static int rad_auth_recv(struct tevent_req *req, int *pam_status, int *dp_err)
+{
+    struct rad_state *state = tevent_req_data(req, struct rad_state);
+    *pam_status = state->pam_status;
+    *dp_err = state->dp_err;
+
+    TEVENT_REQ_RETURN_ON_ERROR(req);
+
+    return EOK;
+}
+
+/* interface objects */
+
+void rad_auth_handler(struct be_req *be_req)
+{    
+    struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
     struct rad_ctx  *rad_ctx;
     struct pam_data *pd;
-    int retval;
+    struct rad_req *rad_req;
+    struct tevent_req *subreq;
 
     pd = talloc_get_type(be_req_get_data(be_req), struct pam_data);
     pd->pam_status = PAM_SYSTEM_ERR;
@@ -235,12 +312,23 @@ void rad_auth_handler(struct be_req *be_req)
         DEBUG(SSSDBG_OP_FAILURE, ("Radius context not available.\n"));
         goto done;
     }
-
-    retval = rad_auth_send(rad_ctx, pd, be_req);
-    if (retval != EOK) {
-        DEBUG(SSSDBG_OP_FAILURE, ("Auth request failed to send [%i].\n", retval));
+    
+    rad_req = talloc_zero(be_req, struct rad_req);
+    if (rad_req == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, ("talloc_zero failed.\n"));
         goto done;
     }
+    talloc_set_destructor((TALLOC_CTX *)rad_req, rad_req_destructor);
+    rad_req->rad_ctx = rad_ctx;
+    rad_req->pd = pd;
+    rad_req->be_req = be_req;
+
+    subreq = sss_rad_auth_send(rad_req, be_ctx->ev, rad_req);
+    if (subreq == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Auth request failed to create subrequest.\n"));
+        goto done;
+    }
+    tevent_req_set_callback(subreq, rad_auth_done, rad_req);
 
     return;
 
@@ -248,42 +336,22 @@ done:
     be_req_terminate(be_req, DP_ERR_FATAL, pd->pam_status, NULL);
 }
 
-static void rad_auth_done(krb5_error_code retval,
-                          const krad_packet *req_pkt,
-                          const krad_packet *rsp_pkt,
-                          void *data)
+static void rad_auth_done(struct tevent_req *req)
 {
-    struct rad_req *req;
-    int dp_err = DP_ERR_FATAL;
+    struct rad_req *rad_req = tevent_req_callback_data(req, struct rad_req);
+    int pam_status;
+    int dp_err;
+    int retval;
 
-    req = data;
-    req->pd->pam_status = PAM_SYSTEM_ERR;
-
-    verto_break(req->vctx);
-
-    switch (retval) {
-    case 0:
-        break;
-    case ETIMEDOUT:
-        DEBUG(SSSDBG_OP_FAILURE, ("Request timeout. No response from server.\n"));
-        break;
-    default:
-        DEBUG(SSSDBG_OP_FAILURE, ("rad_auth_send failed with code %i.\n", retval));
-    }
-
-    if (krad_packet_get_code(rsp_pkt)
-        == krad_code_name2num("Access-Accept")) {
-        
-        DEBUG(SSSDBG_TRACE_FUNC, ("Permission granted for user %s.\n", req->pd->user));
+    retval = rad_auth_recv(req, &pam_status, &dp_err);
+    talloc_zfree(req);
+    if (retval != EOK) {
+        pam_status = PAM_SYSTEM_ERR;
         dp_err = DP_ERR_OK;
-        req->pd->pam_status = PAM_SUCCESS;
-    } else {
-        DEBUG(SSSDBG_TRACE_FUNC, ("Permission denied for user %s.\n", req->pd->user));
-        dp_err = DP_ERR_OK;
-        req->pd->pam_status = PAM_PERM_DENIED;
     }
+    rad_req->pd->pam_status = pam_status;
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Callback terminating be_req.\n"));
-    be_req_terminate(req->be_req, dp_err, req->pd->pam_status, NULL);
+    be_req_terminate(rad_req->be_req, dp_err, pam_status, NULL);
     DEBUG(SSSDBG_TRACE_FUNC, ("Callback finished.\n"));
 }
