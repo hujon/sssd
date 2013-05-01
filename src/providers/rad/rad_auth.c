@@ -142,12 +142,6 @@ static int rad_server_send(struct rad_state *state)
         rad_req->kctx = NULL;
         return ERR_AUTH_FAILED;
     }
- 
-    rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
-    if (rad_req->vctx == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
-        return ERR_AUTH_FAILED;
-    }
     
     kerr = krad_client_new(rad_req->kctx, rad_req->vctx, &rad_req->client);
     if (kerr != 0) {
@@ -193,6 +187,7 @@ static int rad_server_send(struct rad_state *state)
         }
     }
 
+    DEBUG(SSSDBG_TRACE_FUNC, ("Sending request.\n"));
     kerr = krad_client_send(rad_req->client,
                             krad_code_name2num("Access-Request"),
                             rad_req->attrs,
@@ -207,7 +202,6 @@ static int rad_server_send(struct rad_state *state)
         return ERR_AUTH_FAILED;
     }
 
-    verto_run(rad_req->vctx);
     return EOK;
 }
 
@@ -219,6 +213,7 @@ static void rad_server_done(krb5_error_code retval,
     struct rad_state *state = data;
     int code;
 
+    DEBUG(SSSDBG_TRACE_FUNC, ("Breaking verto.\n"));
     verto_break(state->rad_req->vctx);
 
     switch (retval) {
@@ -248,6 +243,8 @@ static void rad_server_done(krb5_error_code retval,
 
     tevent_req_done(state->req);
     tevent_req_post(state->req, state->ev);
+    
+    DEBUG(SSSDBG_TRACE_FUNC, ("rad_server_done finished.\n"));
 }
 
 /* tevent subrequest oriented objects */
@@ -272,13 +269,21 @@ static struct tevent_req *sss_rad_auth_send(TALLOC_CTX *mem_ctx,
     state->rad_req = rad_req;
     state->pam_status = PAM_SYSTEM_ERR;
     state->dp_err = DP_ERR_FATAL;
+ 
+    rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
+    if (rad_req->vctx == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
+        return NULL;
+    }
 
+    DEBUG(SSSDBG_TRACE_FUNC, ("Calling rad_server_send.\n"));
     retval = rad_server_send(state);
     if (retval != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, ("rad_server_send failed.\n"));
         tevent_req_error(req, retval);
         tevent_req_post(req, ev);
     }
+    verto_run(rad_req->vctx);
 
     return req;
 }
