@@ -83,11 +83,11 @@ static int rad_req_destructor(void *mem)
         krad_attrset_free(req->attrs);
     if (req->client != NULL)
         krad_client_free(req->client);
-    if (req->vctx != NULL)
-        verto_free(req->vctx);
     if (req->kctx != NULL)
         krb5_free_context(req->kctx);
-
+ /*   if (req->vctx != NULL)
+        verto_free(req->vctx);
+*/
     return 0;
 }
 
@@ -142,6 +142,12 @@ static int rad_server_send(struct rad_state *state)
         rad_req->kctx = NULL;
         return ERR_AUTH_FAILED;
     }
+   
+    rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
+    if (rad_req->vctx == NULL) {
+        DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
+        return ERR_AUTH_FAILED;
+    }
     
     kerr = krad_client_new(rad_req->kctx, rad_req->vctx, &rad_req->client);
     if (kerr != 0) {
@@ -149,7 +155,7 @@ static int rad_server_send(struct rad_state *state)
         rad_req->client = NULL;
         return ERR_AUTH_FAILED;
     }
-    
+   
     kerr = krad_attrset_new(rad_req->kctx, &rad_req->attrs);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize attribute list.\n"));
@@ -201,6 +207,8 @@ static int rad_server_send(struct rad_state *state)
         DEBUG(SSSDBG_OP_FAILURE, ("Failed to send client request.\n"));
         return ERR_AUTH_FAILED;
     }
+    
+    verto_run(state->rad_req->vctx);
 
     return EOK;
 }
@@ -242,22 +250,23 @@ static void rad_server_done(krb5_error_code retval,
     }
 
     tevent_req_done(state->req);
-    tevent_req_post(state->req, state->ev);
+    /* tevent_req_post(state->req, state->ev); */
     
     DEBUG(SSSDBG_TRACE_FUNC, ("rad_server_done finished.\n"));
 }
 
 /* tevent subrequest oriented objects */
 
+static void rad_auth_wakeup(struct tevent_req *req);
 static void rad_auth_done(struct tevent_req *req);
 
-static struct tevent_req *sss_rad_auth_send(TALLOC_CTX *mem_ctx,
-                                            struct tevent_context *ev,
-                                            struct rad_req *rad_req)
+static struct tevent_req *rad_auth_send(TALLOC_CTX *mem_ctx,
+                                        struct tevent_context *ev,
+                                        struct rad_req *rad_req)
 {
-    struct tevent_req *req;
+    struct tevent_req *req, *subreq;
     struct rad_state *state;
-    int retval;
+    struct timeval tv;
 
     req = tevent_req_create(rad_req, &state, struct rad_state);
     if (req == NULL) {
@@ -270,22 +279,35 @@ static struct tevent_req *sss_rad_auth_send(TALLOC_CTX *mem_ctx,
     state->pam_status = PAM_SYSTEM_ERR;
     state->dp_err = DP_ERR_FATAL;
  
-    rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
-    if (rad_req->vctx == NULL) {
-        DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
+    /*
+     * We need to have a wrapper around rad_server_send because
+     * of the use of verto library for inner loop to make sure
+     * that callback is set before rad_server_send is called.
+     */
+    tv = tevent_timeval_current();
+    subreq = tevent_wakeup_send(req, ev, tv);
+    if (subreq == NULL) {
+        DEBUG(1, ("Failed to add critical timer to run next operation!\n"));
+        talloc_zfree(req);
         return NULL;
     }
+    tevent_req_set_callback(subreq, rad_auth_wakeup, state);
 
+    return req;
+}
+
+static void rad_auth_wakeup(struct tevent_req *req)
+{
+    struct rad_state *state = tevent_req_callback_data(req, struct rad_state);
+    int retval;
+    
     DEBUG(SSSDBG_TRACE_FUNC, ("Calling rad_server_send.\n"));
     retval = rad_server_send(state);
     if (retval != EOK) {
         DEBUG(SSSDBG_OP_FAILURE, ("rad_server_send failed.\n"));
-        tevent_req_error(req, retval);
-        tevent_req_post(req, ev);
+        tevent_req_error(state->req, retval);
+        tevent_req_post(state->req, state->ev);
     }
-    verto_run(rad_req->vctx);
-
-    return req;
 }
 
 static int rad_auth_recv(struct tevent_req *req, int *pam_status, int *dp_err)
@@ -328,12 +350,13 @@ void rad_auth_handler(struct be_req *be_req)
     rad_req->pd = pd;
     rad_req->be_req = be_req;
 
-    subreq = sss_rad_auth_send(rad_req, be_ctx->ev, rad_req);
+    subreq = rad_auth_send(rad_req, be_ctx->ev, rad_req);
     if (subreq == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, ("Auth request failed to create subrequest.\n"));
         goto done;
     }
     tevent_req_set_callback(subreq, rad_auth_done, rad_req);
+    DEBUG(SSSDBG_TRACE_FUNC, ("Callback set.\n"));
 
     return;
 
@@ -358,5 +381,5 @@ static void rad_auth_done(struct tevent_req *req)
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Callback terminating be_req.\n"));
     be_req_terminate(rad_req->be_req, dp_err, pam_status, NULL);
-    DEBUG(SSSDBG_TRACE_FUNC, ("Callback finished.\n"));
+    DEBUG(SSSDBG_TRACE_FUNC, ("Request finished.\n"));
 }
