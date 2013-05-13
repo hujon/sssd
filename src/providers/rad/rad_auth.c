@@ -56,6 +56,11 @@ struct rad_state {
     struct tevent_req *req;
     struct rad_req *rad_req;
 
+    krb5_context kctx;
+    krad_attrset *attrs;
+    krad_client *client;
+    verto_ctx *vctx;
+
     int pam_status;
     int dp_err;
 };
@@ -66,27 +71,22 @@ struct rad_req {
     struct rad_ctx *rad_ctx;
     struct pam_data *pd;
     struct be_req *be_req;
-
-    krb5_context kctx;
-    krad_attrset *attrs;
-    krad_client *client;
-    verto_ctx *vctx;
 };
 
-static int rad_req_destructor(void *mem)
+static int rad_state_destructor(void *mem)
 {
-    struct rad_req *req = talloc_get_type(mem, struct rad_req);
+    struct rad_state *self = talloc_get_type(mem, struct rad_state);
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Destructor freeing req.\n"));
     
-    if (req->attrs != NULL)
-        krad_attrset_free(req->attrs);
-    if (req->client != NULL)
-        krad_client_free(req->client);
-    if (req->kctx != NULL)
-        krb5_free_context(req->kctx);
- /*   if (req->vctx != NULL)
-        verto_free(req->vctx);
+    if (self->attrs != NULL)
+        krad_attrset_free(self->attrs);
+    if (self->client != NULL)
+        krad_client_free(self->client);
+    if (self->kctx != NULL)
+        krb5_free_context(self->kctx);
+ /*   if (self->vctx != NULL)
+        verto_free(self->vctx);
 */
     return 0;
 }
@@ -136,33 +136,33 @@ static int rad_server_send(struct rad_state *state)
              dp_opt_get_string(rad_req->rad_ctx->opts, RAD_PORT));
 
 
-    kerr = krb5_init_context(&rad_req->kctx);
+    kerr = krb5_init_context(&state->kctx);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize KRB5 context.\n"));
-        rad_req->kctx = NULL;
+        state->kctx = NULL;
         return ERR_AUTH_FAILED;
     }
    
-    rad_req->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
-    if (rad_req->vctx == NULL) {
+    state->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
+    if (state->vctx == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
         return ERR_AUTH_FAILED;
     }
     
-    kerr = krad_client_new(rad_req->kctx, rad_req->vctx, &rad_req->client);
+    kerr = krad_client_new(state->kctx, state->vctx, &state->client);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize radius client.\n"));
-        rad_req->client = NULL;
+        state->client = NULL;
         return ERR_AUTH_FAILED;
     }
    
-    kerr = krad_attrset_new(rad_req->kctx, &rad_req->attrs);
+    kerr = krad_attrset_new(state->kctx, &state->attrs);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not initialize attribute list.\n"));
-        rad_req->attrs = NULL;
+        state->attrs = NULL;
         return ERR_AUTH_FAILED;
     }
-    kerr = add_str_attr(rad_req->attrs, "User-Name", rad_req->pd->user);
+    kerr = add_str_attr(state->attrs, "User-Name", rad_req->pd->user);
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Name to attribute list.\n"));
         return ERR_AUTH_FAILED;
@@ -171,13 +171,13 @@ static int rad_server_send(struct rad_state *state)
         DEBUG(SSSDBG_OP_FAILURE, ("Password not supplied for user %s.\n", rad_req->pd->user));
         return ERR_AUTH_FAILED;
     }
-    kerr = add_str_attr(rad_req->attrs, "User-Password", pass);
+    kerr = add_str_attr(state->attrs, "User-Password", pass);
     pass = NULL;
     if (kerr != 0) {
         DEBUG(SSSDBG_OP_FAILURE, ("Could not add User-Password to attribute list.\n"));
         return ERR_AUTH_FAILED;
     }
-    kerr = krad_attrset_add_number(rad_req->attrs,
+    kerr = krad_attrset_add_number(state->attrs,
                                    krad_attr_name2num("Service-Type"),
                                    KRAD_SERVICE_TYPE_LOGIN);
     if (kerr != 0) {
@@ -185,7 +185,7 @@ static int rad_server_send(struct rad_state *state)
         return ERR_AUTH_FAILED;
     }
     if (dp_opt_get_string(rad_req->rad_ctx->opts, RAD_IDENTIFIER) != NULL) {
-        kerr = add_str_attr(rad_req->attrs,
+        kerr = add_str_attr(state->attrs,
                             "NAS-Identifier",
                             dp_opt_get_string(rad_req->rad_ctx->opts, RAD_IDENTIFIER));
         if (kerr != 0) {
@@ -194,9 +194,9 @@ static int rad_server_send(struct rad_state *state)
     }
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Sending request.\n"));
-    kerr = krad_client_send(rad_req->client,
+    kerr = krad_client_send(state->client,
                             krad_code_name2num("Access-Request"),
-                            rad_req->attrs,
+                            state->attrs,
                             server_name,
                             dp_opt_get_string(rad_req->rad_ctx->opts, RAD_SECRET),
                             dp_opt_get_int(rad_req->rad_ctx->opts, RAD_TIMEOUT),
@@ -208,7 +208,7 @@ static int rad_server_send(struct rad_state *state)
         return ERR_AUTH_FAILED;
     }
     
-    verto_run(state->rad_req->vctx);
+    verto_run(state->vctx);
 
     return EOK;
 }
@@ -222,7 +222,7 @@ static void rad_server_done(krb5_error_code retval,
     int code;
 
     DEBUG(SSSDBG_TRACE_FUNC, ("Breaking verto.\n"));
-    verto_break(state->rad_req->vctx);
+    verto_break(state->vctx);
 
     switch (retval) {
     case EOK:
@@ -232,7 +232,7 @@ static void rad_server_done(krb5_error_code retval,
         state->dp_err = DP_ERR_TIMEOUT;
         break;
     default:
-        DEBUG(SSSDBG_OP_FAILURE, ("rad_auth_send failed with code %i.\n", retval));
+        DEBUG(SSSDBG_OP_FAILURE, ("rad_server_send failed with code %i.\n", retval));
     }
 
     code = krad_packet_get_code(rsp_pkt);
@@ -251,7 +251,6 @@ static void rad_server_done(krb5_error_code retval,
     }
 
     tevent_req_done(state->req);
-    /* tevent_req_post(state->req, state->ev); */
 }
 
 /* tevent subrequest oriented objects */
@@ -272,6 +271,7 @@ static struct tevent_req *rad_auth_send(TALLOC_CTX *mem_ctx,
         DEBUG(SSSDBG_OP_FAILURE, ("tevent_req_create failed.\n"));
         return NULL;
     }
+    talloc_set_destructor((TALLOC_CTX *)state, rad_state_destructor);
     state->ev = ev;
     state->req = req;
     state->rad_req = rad_req;
@@ -344,7 +344,6 @@ void rad_auth_handler(struct be_req *be_req)
         DEBUG(SSSDBG_OP_FAILURE, ("talloc_zero failed.\n"));
         goto done;
     }
-    talloc_set_destructor((TALLOC_CTX *)rad_req, rad_req_destructor);
     rad_req->rad_ctx = rad_ctx;
     rad_req->pd = pd;
     rad_req->be_req = be_req;
