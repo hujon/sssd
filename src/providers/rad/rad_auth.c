@@ -229,6 +229,7 @@ static void rad_server_done(krb5_error_code retval,
         break;
     case ETIMEDOUT:
         DEBUG(SSSDBG_OP_FAILURE, ("Request timeout. No response from server.\n"));
+        state->dp_err = DP_ERR_TIMEOUT;
         break;
     default:
         DEBUG(SSSDBG_OP_FAILURE, ("rad_auth_send failed with code %i.\n", retval));
@@ -242,7 +243,7 @@ static void rad_server_done(krb5_error_code retval,
         state->pam_status = PAM_SUCCESS;
     } else if (code == krad_code_name2num("Access-Reject")) {
         DEBUG(SSSDBG_TRACE_FUNC, 
-              ("Permission granted for user %s.\n", state->rad_req->pd->user));
+              ("Permission denied for user %s.\n", state->rad_req->pd->user));
         state->dp_err = DP_ERR_OK;
         state->pam_status = PAM_PERM_DENIED;
     } else if (code == krad_code_name2num("Access-Challenge")) {
@@ -251,8 +252,6 @@ static void rad_server_done(krb5_error_code retval,
 
     tevent_req_done(state->req);
     /* tevent_req_post(state->req, state->ev); */
-    
-    DEBUG(SSSDBG_TRACE_FUNC, ("rad_server_done finished.\n"));
 }
 
 /* tevent subrequest oriented objects */
@@ -292,7 +291,7 @@ static struct tevent_req *rad_auth_send(TALLOC_CTX *mem_ctx,
         return NULL;
     }
     tevent_req_set_callback(subreq, rad_auth_wakeup, state);
-
+    
     return req;
 }
 
@@ -379,7 +378,6 @@ static void rad_auth_done(struct tevent_req *req)
     }
     rad_req->pd->pam_status = pam_status;
 
-    DEBUG(SSSDBG_TRACE_FUNC, ("Callback terminating be_req.\n"));
     be_req_terminate(rad_req->be_req, dp_err, pam_status, NULL);
     DEBUG(SSSDBG_TRACE_FUNC, ("Request finished.\n"));
 }
