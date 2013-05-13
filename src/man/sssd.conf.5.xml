@@ -1219,6 +1219,14 @@ override_homedir = /home/%u
                             </citerefentry> for more information on
                             configuring Active Directory.
                         </para>
+                        <para condition="with_radius">
+                            <quote>rad</quote>: RADIUS provider. See
+                            <citerefentry>
+                                <refentrytitle>sssd-rad</refentrytitle>
+                                <manvolnum>5</manvolnum>
+                            </citerefentry> for more information on
+                            configuring RADIUS.
+                        </para>
                         <para>
                             <quote>proxy</quote> for relaying authentication to some other PAM target.
                         </para>

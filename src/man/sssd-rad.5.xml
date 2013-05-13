@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE reference PUBLIC "-//OASIS//DTD DocBook V4.4//EN"
+"http://www.oasis-open.org/docbook/xml/4.4/docbookx.dtd">
+<reference>
+<title>SSSD Manual pages</title>
+<refentry>
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="include/upstream.xml" />
+
+    <refmeta>
+        <refentrytitle>sssd-rad</refentrytitle>
+        <manvolnum>5</manvolnum>
+        <refmiscinfo class="manual">File Formats and Conventions</refmiscinfo>
+    </refmeta>
+
+    <refnamediv id='name'>
+        <refname>sssd-rad</refname>
+        <refpurpose>the configuration file for SSSD</refpurpose>
+    </refnamediv>
+
+    <refsect1 id='description'>
+        <title>DESCRIPTION</title>
+        <para>
+            This manual page describes the configuration of RADIUS
+            domains for
+            <citerefentry>
+                <refentrytitle>sssd</refentrytitle>
+                <manvolnum>8</manvolnum>
+            </citerefentry>.
+            Refer to the <quote>FILE FORMAT</quote> section of the
+            <citerefentry>
+                <refentrytitle>sssd.conf</refentrytitle>
+                <manvolnum>5</manvolnum>
+            </citerefentry> manual page for detailed syntax information.</para>
+        <para>
+            You can configure SSSD to use more than one RADIUS domain.
+        </para>
+        <para>
+            RADIUS back end supports only auth provider. Id_provider must be set
+            to use the same user database as RADIUS server.
+        </para>
+    </refsect1>
+
+    <refsect1 id='file-format'>
+        <title>CONFIGURATION OPTIONS</title>
+        <para>
+            All of the common configuration options that apply to SSSD domains also apply
+            to RADIUS domains. Refer to the <quote>DOMAIN SECTIONS</quote> section of the
+            <citerefentry>
+                <refentrytitle>sssd.conf</refentrytitle>
+                <manvolnum>5</manvolnum>
+            </citerefentry> manual page for full details.
+        </para>
+        <para>
+            Every RADIUS domain have to include specification of RADIUS server in rad_server
+            and shared secret in rad_secret.
+
+            <variablelist>
+                <varlistentry>
+                    <term>rad_server (string)</term>
+                    <listitem>
+                        <para>
+                            Specifies the server which should be used for RADIUS authentication.
+                            This option is compulsory for rad provider.
+                        </para>
+                        <para>
+                            Can be defined either by IP, hostname or even by socket path.
+                        </para>
+                        <para>
+                            For explicit IPv6 addresses, &lt;host&gt; must be enclosed in brackets []
+                        </para>
+                    </listitem>
+                </varlistentry>
+
+                <varlistentry>
+                    <term>rad_port (string)</term>
+                    <listitem>
+                        <para>
+                            Specifies port on which is server listening.
+                        </para>
+                        <para>
+                            Can be set by port number, or by name of service (from /etc/services).
+                        </para>
+                        <para>
+                            Default: radius
+                        </para>
+                    </listitem>
+                </varlistentry>
+
+                <varlistentry>
+                    <term>rad_secret (string)</term>
+                    <listitem>
+                        <para>
+                            Shared secret between host and server. This have to be the same in the server
+                            configuration, or authentication requests will be discarded.
+                        </para>
+                    </listitem>
+                </varlistentry>
+
+                <varlistentry>
+                    <term>rad_timeout (integer)</term>
+                    <listitem>
+                        <para>
+                            Sets timeout for single response from server in mikroseconds. If server does not
+                            reply in time, duplicate request is sent.
+                        </para>
+                        <para>
+                            Default: 10000
+                        </para>
+                    </listitem>
+                </varlistentry>
+
+                <varlistentry>
+                    <term>rad_conn_retries (integer)</term>
+                    <listitem>
+                        <para>
+                            Specifies number of connection retries. Provider sends up to this number requests 
+                            and if it doesn’t get any reply, authentication is rejected.
+                        </para>
+                        <para>
+                            Default: 3
+                        </para>
+                    </listitem>
+                </varlistentry>
+
+                <varlistentry>
+                    <term>rad_identifier (string)</term>
+                    <listitem>
+                        <para>
+                            Specifies an identification of this host that should be sent to server as 
+                            NAS-Identifier.
+                        </para>
+                        <para>
+                            Default: hostname of client
+                        </para>
+                    </listitem>
+                </varlistentry>
+            </variablelist>
+        </para>
+    </refsect1>
+
+    <refsect1 id='example'>
+        <title>EXAMPLE</title>
+        <para>
+            The following example assumes that SSSD is correctly
+            configured and RADIUS is set to one of the domains in the
+            <replaceable>[domains]</replaceable> section.
+        </para>
+        <para>
+<programlisting>
+    [domain/RADIUS]
+    id_provider = ldap
+    ldap_uri = ldap://ldap.mydomain.org
+    ldap_search_base = dc=mydomain,dc=org
+
+    auth_provider = rad
+    rad_server = radius.mydomain.org
+    rad_secret = mysharedsecret
+</programlisting>
+        </para>
+    </refsect1>
+
+    <xi:include xmlns:xi="http://www.w3.org/2001/XInclude" href="include/seealso.xml" />
+
+</refentry>
+</reference>
