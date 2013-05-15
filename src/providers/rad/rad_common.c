@@ -30,6 +30,11 @@
 
 /**
  * Loads options for radius provider.
+ *
+ * @var memctx is parent node in talloc hierarchy
+ * @var cdb is context of configuration database
+ * @var conf_path is path to config file
+ * @var _opts is used to return loaded options
  */
 errno_t rad_get_options(TALLOC_CTX *memctx,
                         struct confdb_ctx *cdb,

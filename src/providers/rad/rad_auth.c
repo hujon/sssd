@@ -30,8 +30,16 @@
 #include "providers/rad/rad_auth.h"
 #include "providers/rad/rad_common.h"
 
+/* Longest possible name in /etc/services + padding */
 #define PROTOCOL_LEN 25
 
+/**
+ * Returns rad_ctx from be_req.
+ *
+ * In case of unsupported PAM request returns NULL
+ *
+ * @var be_req is request that contains rad_ctx
+ */
 static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
 {
     struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
@@ -51,28 +59,41 @@ static struct rad_ctx *get_rad_ctx(struct be_req *be_req)
     }
 }
 
+/**
+ * State structure for radius request
+ */
 struct rad_state {
     struct tevent_context *ev;
     struct tevent_req *req;
     struct rad_req *rad_req;
 
+    /* krad variables */
     krb5_context kctx;
     krad_attrset *attrs;
     krad_client *client;
     verto_ctx *vctx;
 
+    /* Status */
     int pam_status;
     int dp_err;
 };
 
 /* RADIUS request oriented objects */
 
+/**
+ * Represents radius request
+ */
 struct rad_req {
     struct rad_ctx *rad_ctx;
     struct pam_data *pd;
     struct be_req *be_req;
 };
 
+/**
+ * Frees krad structures when rad_state is being freed.
+ *
+ * @var mem is TALLOC_CTX of rad_state structure
+ */
 static int rad_state_destructor(void *mem)
 {
     struct rad_state *self = talloc_get_type(mem, struct rad_state);
@@ -85,7 +106,9 @@ static int rad_state_destructor(void *mem)
         krad_client_free(self->client);
     if (self->kctx != NULL)
         krb5_free_context(self->kctx);
- /*   if (self->vctx != NULL)
+ /* FIXME: this function currently frees tevent loop of whole SSSD,
+  *        once this is fixed in verto library, uncomment  
+    if (self->vctx != NULL)
         verto_free(self->vctx);
 */
     return 0;
@@ -93,6 +116,13 @@ static int rad_state_destructor(void *mem)
 
 /* krad oriented objects */
 
+/**
+ * Converts string to Kerberos data structure
+ *
+ * Explicit free of data part is needed after use.
+ *
+ * @var str is string that should be converted
+ */
 static inline krb5_data string2data(const char *str)
 {
     krb5_data d;
@@ -104,6 +134,13 @@ static inline krb5_data string2data(const char *str)
     return d;
 }
 
+/**
+ * Adds string attribute to the list of attributes
+ *
+ * @var attrs is list of attributes where should be new string added
+ * @var attr_name is name of the new attribute
+ * @var attr_val is value of the new attribute
+ */
 static krb5_error_code add_str_attr(krad_attrset *attrs,
                                     const char *attr_name,
                                     const char *attr_val)
@@ -124,6 +161,12 @@ static void rad_server_done(krb5_error_code retval,
                             const krad_packet *response,
                             void *data);
 
+/**
+ * This function creates krad client, fills it up with data
+ * and sends request to RADIUS server.
+ *
+ * @var state is state of this request
+ */
 static int rad_server_send(struct rad_state *state)
 {
     struct rad_req *rad_req = state->rad_req;
@@ -131,6 +174,7 @@ static int rad_server_send(struct rad_state *state)
     char server_name[HOST_NAME_MAX+1+PROTOCOL_LEN+1];
     krb5_error_code kerr;
 
+    /* create uri from server name and port */
     snprintf(server_name, sizeof(server_name), "%s:%s",
              dp_opt_get_string(rad_req->rad_ctx->opts, RAD_SERVER),
              dp_opt_get_string(rad_req->rad_ctx->opts, RAD_PORT));
@@ -213,6 +257,14 @@ static int rad_server_send(struct rad_state *state)
     return EOK;
 }
 
+/**
+ * Processes answer from the server or reacts to timeout.
+ *
+ * @var retval is returning value from inner krad function that receives data
+ * @var req_pkt is requesting packet that was sent to the server
+ * @var rsp_pkt is response packet from the server
+ * @var data contains radius request state
+ */
 static void rad_server_done(krb5_error_code retval,
                             const krad_packet *req_pkt,
                             const krad_packet *rsp_pkt,
@@ -258,6 +310,13 @@ static void rad_server_done(krb5_error_code retval,
 static void rad_auth_wakeup(struct tevent_req *req);
 static void rad_auth_done(struct tevent_req *req);
 
+/**
+ * Creates subrequest.
+ *
+ * @var mem_ctx is parent node in talloc hierarchy
+ * @var ev is context of SSSD tevent loop
+ * @var rad_req is radius request structure
+ */
 static struct tevent_req *rad_auth_send(TALLOC_CTX *mem_ctx,
                                         struct tevent_context *ev,
                                         struct rad_req *rad_req)
@@ -295,6 +354,9 @@ static struct tevent_req *rad_auth_send(TALLOC_CTX *mem_ctx,
     return req;
 }
 
+/**
+ * This is only a wrapper function that calls rad_server_send()
+ */
 static void rad_auth_wakeup(struct tevent_req *req)
 {
     struct rad_state *state = tevent_req_callback_data(req, struct rad_state);
@@ -309,6 +371,13 @@ static void rad_auth_wakeup(struct tevent_req *req)
     }
 }
 
+/**
+ * This is a helper function that loads state from request to pam_status and dp_err
+ *
+ * @var req is a finished request
+ * @var pam_status is pointer to integer, where will be stored pam status from request
+ * @var dp_err is pointer to integer, where will be stored error status from request
+ */
 static int rad_auth_recv(struct tevent_req *req, int *pam_status, int *dp_err)
 {
     struct rad_state *state = tevent_req_data(req, struct rad_state);
@@ -322,6 +391,11 @@ static int rad_auth_recv(struct tevent_req *req, int *pam_status, int *dp_err)
 
 /* interface objects */
 
+/**
+ * This function handles all incomming authentication requests.
+ *
+ * @var be_req is incomming request
+ */
 void rad_auth_handler(struct be_req *be_req)
 {    
     struct be_ctx *be_ctx = be_req_get_be_ctx(be_req);
@@ -362,6 +436,11 @@ done:
     be_req_terminate(be_req, DP_ERR_FATAL, pd->pam_status, NULL);
 }
 
+/**
+ * This function returns results back to domain provider backend.
+ *
+ * @var req is finished request
+ */
 static void rad_auth_done(struct tevent_req *req)
 {
     struct rad_req *rad_req = tevent_req_callback_data(req, struct rad_req);

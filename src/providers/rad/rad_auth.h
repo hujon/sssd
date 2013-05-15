@@ -27,6 +27,9 @@
 
 #include "providers/dp_backend.h"
 
+/**
+ * Handles authentication requests.
+ */
 void rad_auth_handler(struct be_req *be_req);
 
 #endif /* __RAD_AUTH_H__ */

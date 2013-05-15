@@ -43,7 +43,11 @@ struct bet_ops rad_auth_ops = {
 };
 
 /**
- * Initialize Radius provider
+ * Handles provider initialization.
+ *
+ * @var bectx is context of whole domain provider
+ * @var ops is used to register request handlers
+ * @var pvt_auth_data is used to store context
  */
 int sssm_rad_auth_init(struct be_ctx *bectx, struct bet_ops **ops, 
                        void **pvt_auth_data)
