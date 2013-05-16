@@ -25,6 +25,7 @@
 #include <krad.h>
 #include <security/pam_modules.h>
 #include <stdio.h>
+#include <verto-tevent.h>
 
 #include "providers/dp_backend.h"
 #include "providers/rad/rad_auth.h"
@@ -187,7 +188,7 @@ static int rad_server_send(struct rad_state *state)
         return ERR_AUTH_FAILED;
     }
    
-    state->vctx = verto_default(NULL, VERTO_EV_TYPE_IO | VERTO_EV_TYPE_TIMEOUT);
+    state->vctx = verto_convert_tevent(state->ev);
     if (state->vctx == NULL) {
         DEBUG(SSSDBG_OP_FAILURE, ("Verto context initialization failed.\n"));
         return ERR_AUTH_FAILED;
@@ -251,8 +252,6 @@ static int rad_server_send(struct rad_state *state)
         DEBUG(SSSDBG_OP_FAILURE, ("Failed to send client request.\n"));
         return ERR_AUTH_FAILED;
     }
-    
-    verto_run(state->vctx);
 
     return EOK;
 }
@@ -272,9 +271,6 @@ static void rad_server_done(krb5_error_code retval,
 {
     struct rad_state *state = data;
     int code;
-
-    DEBUG(SSSDBG_TRACE_FUNC, ("Breaking verto.\n"));
-    verto_break(state->vctx);
 
     switch (retval) {
     case EOK:

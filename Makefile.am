@@ -1600,7 +1600,7 @@ libsss_rad_la_LIBADD = \
 	$(KRB5_LIBS) \
 	libsss_util.la \
 	-lkrad \
-	-lverto
+	-lverto-tevent
 libsss_rad_la_LDFLAGS = \
     -avoid-version \
 	-module
